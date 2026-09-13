@@ -1,0 +1,817 @@
+diff --git a/FIXES.md b/FIXES.md
+new file mode 100644
+index 0000000..2de87cc
+--- /dev/null
++++ b/FIXES.md
+@@ -0,0 +1,76 @@
++# Fixes applied to the Unlock Protocol WordPress plugin
++
++This branch fixes functional, security and compatibility issues found during
++an audit of the plugin. Each change is a separate, atomic commit.
++
++## Functional
++
++- **Duplicate network key (`inc/classes/class-unlock.php`)** — `networks_list()`
++  used the `mainnet` key twice, so the Goerli entry was silently overwritten.
++  Goerli is no longer served by the Unlock RPC proxy (HTTP 404). The default
++  list now uses unique keys and includes Sepolia, Base Sepolia and Base.
++- **Undefined RPC URL in `has_access()` (`inc/classes/class-unlock.php`)** —
++  `$url` was read before being initialized, so a lock pointing to an
++  unconfigured network could be validated against a stale endpoint. The URL is
++  now resolved per lock and missing network/address values are skipped.
++- **`validate()` hardening (`inc/classes/class-unlock.php`)** — validates the
++  lock address and user address, uses `esc_url_raw()` for the request URL,
++  sets a 15s timeout and checks the HTTP status code before decoding the
++  response. Prevents the PHP 8.1 `substr(null, 2)` deprecation.
++- **Locks normalization (`inc/classes/class-unlock.php`, `inc/classes/blocks/class-unlock-box-block.php`)** —
++  `render_content()` no longer iterates over `null` (invalid decoded JSON) and
++  the block callback checks `$attributes['locks']` exists.
++- **Full post/page filter scope (`inc/classes/fullpostpage/class-unlock-box-full-post-page.php`)** —
++  the `the_content` filter now only runs on the main loop of a singular
++  post/page, not in feeds, excerpts, REST responses or secondary queries.
++- **Infinite loop in `Helper::unique_username()` (`inc/classes/utils/class-helper.php`)** —
++  `$count` was never incremented.
++- **Malformed locks in `get_checkout_url()` (`inc/classes/class-unlock.php`)** —
++  skips locks without address/network and only merges a decoded paywall config
++  when it is an array.
++- **Admin UI accepted locks without a network (`src/assets/js/admin-locks.js`,
++  `src/assets/js/blocks/unlock-content/edit.js`)** — `lockValid()` returned
++  `true` for `network === -1`; the submit button is now disabled and the
++  component guards against a missing networks list.
++
++## Security
++
++- **Network deletion validation (`inc/classes/rest-api/class-settings.php`)** —
++  the empty check ran after the `(int)` cast (always false) and an unknown
++  index produced an undefined array key warning. The raw parameter is now
++  validated and the list re-indexed after removal.
++- **General settings sanitization (`inc/classes/rest-api/class-settings.php`)** —
++  rejects non-array payloads, sanitizes colors with `sanitize_hex_color()` and
++  URLs with `esc_url_raw()`.
++- **OAuth registration (`inc/classes/class-login.php`)** — handles `WP_Error`
++  from `wp_insert_user()` and a failed user lookup instead of fataling, and
++  builds the synthetic email with `sanitize_text_field()`.
++- **Template variables (`templates/login/button.php`,
++  `templates/login/checkout-button.php`)** — guards the optional background
++  image variables with `empty()`.
++
++## Compatibility and maintenance
++
++- **Asset version (`inc/classes/class-assets.php`)** — `get_file_version()`
++  passed a URL to `file_exists()`/`filemtime()`; it now uses the filesystem
++  build directory.
++- **Editor assets (`inc/classes/class-blocks.php`, `inc/classes/class-fullpostpage.php`)** —
++  skips registration when the compiled asset files are missing (source
++  checkouts before a build) instead of emitting warnings.
++- **Metadata (`README.txt`, `unlock-protocol.php`)** — updated the tested
++  WordPress version, minimum PHP version, plugin header requirements and a
++  malformed link.
++
++## How to test
++
++1. Clone this branch and install dependencies: `yarn install`.
++2. Build the assets: `yarn build:all`.
++3. Symlink or copy `unlock-wordpress-plugin/` into `wp-content/plugins/` and
++   activate the plugin.
++4. Configure a lock deployed on a supported testnet (Sepolia or Base Sepolia)
++   and protect a post/page or a Gutenberg block.
++5. Verify that users without a key see the checkout button and users with a
++   key see the content.
++
++> Note: JavaScript dependencies were not upgraded in this branch to keep the
++> diff focused; that is tracked as a follow-up.
+diff --git a/README.txt b/README.txt
+index 09fa555..9fb7cf2 100644
+--- a/README.txt
++++ b/README.txt
+@@ -1,9 +1,9 @@
+ === Unlock Protocol ===
+ Contributors: julien51
+ Tags: paywall, ethereum, monetization, unlock, membership, subscription, member
+-Requires at least: 5.1
+-Tested up to: 5.9
+-Requires PHP: 7.0
++Requires at least: 5.9
++Tested up to: 7.1
++Requires PHP: 7.4
+ Stable tag: 4.0.1
+ License: GPLv3
+ License URI: https://github.com/unlock-protocol/unlock-wordpress-plugin/blob/master/LICENSE
+@@ -22,7 +22,7 @@ The plugin uses Unlock's default checkout UI, which means it lets users who do n
+ 
+ == Getting Started ==
+ 
+-If you'd like to add a lock to your site, start by [deploying your first lock]https://app.unlock-protocol.com/locks/create). We _strongly_ recommend starting with a test network such as Goerli.
++If you'd like to add a lock to your site, start by [deploying your first lock](https://app.unlock-protocol.com/locks/create). We _strongly_ recommend starting with a test network such as Sepolia or Base Sepolia.
+ 
+ While the lock is deploying, you should [download this plugin](https://wordpress.org/plugins/unlock-protocol/) from the WordPress site. Then, from the administration of your WordPress.org website, in the `Plugins` section, click on the `Add New button and then on the `Upload Plugin` button to upload the plugin.
+ 
+diff --git a/src/assets/js/admin-locks.js b/src/assets/js/admin-locks.js
+index 9372115..e0e0979 100644
+--- a/src/assets/js/admin-locks.js
++++ b/src/assets/js/admin-locks.js
+@@ -23,7 +23,7 @@ export const AdminLocks = ({ onSaveNewLock, removeLock, locks }) => {
+       <ul>
+         {locks.map((lock, id) => {
+           return (
+-            <Lock lock={lock} onRemove={() => {
++            <Lock key={lock.address || id} lock={lock} onRemove={() => {
+               removeLock(id);
+             }} />
+           );
+@@ -98,7 +98,7 @@ const AddLockForm = ({ handleSave }) => {
+       />
+       {error && <p className="lock-warning">{error}</p>}
+       <Button
+-        disabled={!network || !isAddressValid(address)}
++        disabled={!network || network === -1 || !isAddressValid(address)}
+         className="add-lock"
+         type="submit"
+       >
+@@ -127,7 +127,7 @@ const Lock = ({ lock, onRemove }) => {
+         }
+       })
+     })
+-  }, [lock.network]);
++  }, [lock.network, lock.address]);
+ 
+   return <li style={{
+     display: "flex",
+diff --git a/src/assets/js/admin/utils.js b/src/assets/js/admin/utils.js
+index dfce444..0d1858e 100644
+--- a/src/assets/js/admin/utils.js
++++ b/src/assets/js/admin/utils.js
+@@ -10,7 +10,7 @@ export const getEthereumNetworksFromSettings = () => {
+     path: "/unlock-protocol/v1/settings",
+   })
+     .then((resp) => {
+-      let networks = resp.networks;
++      let networks = resp.networks || {};
+       let selectOptions = [
+         {
+           label: __("None", "unlock-protocol"),
+diff --git a/src/assets/js/blocks/unlock-content/edit.js b/src/assets/js/blocks/unlock-content/edit.js
+index 2fcd9fc..d1f1f2e 100644
+--- a/src/assets/js/blocks/unlock-content/edit.js
++++ b/src/assets/js/blocks/unlock-content/edit.js
+@@ -23,16 +23,10 @@ import { AdminLocks } from "../../admin-locks";
+  * @returns
+  */
+ const locksValid = (locks) => {
+-  let valid = true;
+-  if (locks.length === 0) {
+-    valid = false;
++  if (!Array.isArray(locks) || locks.length === 0) {
++    return false;
+   }
+-  locks.forEach((lock) => {
+-    if (lock.network === -1 || !lockValid(lock)) {
+-      valid = false;
+-    }
+-  });
+-  return valid;
++  return locks.every((lock) => lockValid(lock));
+ };
+ 
+ /**
+@@ -41,8 +35,8 @@ const locksValid = (locks) => {
+  * @returns
+  */
+ const lockValid = (lock) => {
+-  if (lock.network === -1) {
+-    return true;
++  if (!lock || lock.network === -1) {
++    return false;
+   }
+   if (!lock.address) {
+     return false;
+diff --git a/unlock-wordpress-plugin/inc/classes/blocks/class-unlock-box-block.php b/unlock-wordpress-plugin/inc/classes/blocks/class-unlock-box-block.php
+index c48d577..a125019 100644
+--- a/unlock-wordpress-plugin/inc/classes/blocks/class-unlock-box-block.php
++++ b/unlock-wordpress-plugin/inc/classes/blocks/class-unlock-box-block.php
+@@ -83,7 +83,7 @@ class Unlock_Box_Block {
+ 	 * @return string HTML elements.
+ 	 */
+ 	public function render_block( $attributes, $content ) {
+-		$locks = $attributes['locks'];
++		$locks = isset( $attributes['locks'] ) ? $attributes['locks'] : array();
+ 		return Unlock::render_content( $locks, $content );
+ 	}
+ }
+diff --git a/unlock-wordpress-plugin/inc/classes/class-assets.php b/unlock-wordpress-plugin/inc/classes/class-assets.php
+index e6137a3..20e7ead 100644
+--- a/unlock-wordpress-plugin/inc/classes/class-assets.php
++++ b/unlock-wordpress-plugin/inc/classes/class-assets.php
+@@ -236,7 +236,7 @@ class Assets {
+ 			return $ver;
+ 		}
+ 
+-		$file_path = sprintf( '%s/%s', UNLOCK_PROTOCOL_BUILD_URI, $file );
++		$file_path = sprintf( '%s/%s', UNLOCK_PROTOCOL_BUILD_DIR, $file );
+ 
+ 		return file_exists( $file_path ) ? filemtime( $file_path ) : false;
+ 	}
+diff --git a/unlock-wordpress-plugin/inc/classes/class-blocks.php b/unlock-wordpress-plugin/inc/classes/class-blocks.php
+index 27be0b1..27dcac1 100644
+--- a/unlock-wordpress-plugin/inc/classes/class-blocks.php
++++ b/unlock-wordpress-plugin/inc/classes/class-blocks.php
+@@ -62,14 +62,21 @@ class Blocks {
+ 	 * @return void
+ 	 */
+ 	private function enqueue_scripts() {
++		$script_path = UNLOCK_PROTOCOL_PATH . '/assets/build/js/blocks.js';
++		$asset_path  = UNLOCK_PROTOCOL_BUILD_DIR . '/js/blocks.asset.php';
++
++		if ( ! file_exists( $script_path ) || ! file_exists( $asset_path ) ) {
++			return;
++		}
++
+ 		// Automatically load dependencies and version.
+-		$asset_file = include UNLOCK_PROTOCOL_BUILD_DIR . '/js/blocks.asset.php';
++		$asset_file = include $asset_path;
+ 
+ 		wp_register_script(
+ 			'unlock-protocol-blocks',
+ 			UNLOCK_PROTOCOL_URL . '/assets/build/js/blocks.js',
+-			$asset_file['dependencies'],
+-			filemtime( UNLOCK_PROTOCOL_PATH . '/assets/build/js/blocks.js' ),
++			isset( $asset_file['dependencies'] ) ? $asset_file['dependencies'] : array(),
++			filemtime( $script_path ),
+ 			true
+ 		);
+ 
+@@ -84,11 +91,17 @@ class Blocks {
+ 	 * @return void
+ 	 */
+ 	private function enqueue_styles() {
++		$style_path = UNLOCK_PROTOCOL_PATH . '/assets/build/css/blocks.css';
++
++		if ( ! file_exists( $style_path ) ) {
++			return;
++		}
++
+ 		wp_register_style(
+ 			'unlock-protocol-blocks',
+ 			UNLOCK_PROTOCOL_URL . '/assets/build/css/blocks.css',
+ 			array(),
+-			filemtime( UNLOCK_PROTOCOL_PATH . '/assets/build/css/blocks.css' )
++			filemtime( $style_path )
+ 		);
+ 
+ 		wp_enqueue_style( 'unlock-protocol-blocks' );
+diff --git a/unlock-wordpress-plugin/inc/classes/class-fullpostpage.php b/unlock-wordpress-plugin/inc/classes/class-fullpostpage.php
+index b374038..f0b5f40 100644
+--- a/unlock-wordpress-plugin/inc/classes/class-fullpostpage.php
++++ b/unlock-wordpress-plugin/inc/classes/class-fullpostpage.php
+@@ -81,14 +81,21 @@ class FullPostPage {
+ 	 * @return void
+ 	 */
+ 	private function enqueue_scripts() {
++		$script_path = UNLOCK_PROTOCOL_PATH . '/assets/build/js/full-post-page.js';
++		$asset_path  = UNLOCK_PROTOCOL_BUILD_DIR . '/js/full-post-page.asset.php';
++
++		if ( ! file_exists( $script_path ) || ! file_exists( $asset_path ) ) {
++			return;
++		}
++
+ 		// Automatically load dependencies and version.
+-		$asset_file = include UNLOCK_PROTOCOL_BUILD_DIR . '/js/full-post-page.asset.php';
++		$asset_file = include $asset_path;
+ 
+ 		wp_register_script(
+ 			'unlock-protocol-full-post-page',
+ 			UNLOCK_PROTOCOL_URL . '/assets/build/js/full-post-page.js',
+-			$asset_file['dependencies'],
+-			filemtime( UNLOCK_PROTOCOL_PATH . '/assets/build/js/full-post-page.js' ),
++			isset( $asset_file['dependencies'] ) ? $asset_file['dependencies'] : array(),
++			filemtime( $script_path ),
+ 			true
+ 		);
+ 
+@@ -103,11 +110,17 @@ class FullPostPage {
+ 	 * @return void
+ 	 */
+ 	private function enqueue_styles() {
++		$style_path = UNLOCK_PROTOCOL_PATH . '/assets/build/css/full-post-page.css';
++
++		if ( ! file_exists( $style_path ) ) {
++			return;
++		}
++
+ 		wp_register_style(
+ 			'unlock-protocol-full-post-page',
+ 			UNLOCK_PROTOCOL_URL . '/assets/build/css/full-post-page.css',
+ 			array(),
+-			filemtime( UNLOCK_PROTOCOL_PATH . '/assets/build/css/full-post-page.css' )
++			filemtime( $style_path )
+ 		);
+ 
+ 		wp_enqueue_style( 'unlock-protocol-full-post-page' );
+diff --git a/unlock-wordpress-plugin/inc/classes/class-login.php b/unlock-wordpress-plugin/inc/classes/class-login.php
+index 761ee47..3b184ac 100644
+--- a/unlock-wordpress-plugin/inc/classes/class-login.php
++++ b/unlock-wordpress-plugin/inc/classes/class-login.php
+@@ -169,7 +169,7 @@ class Login {
+ 	 * @return string
+ 	 */
+ 	public function get_email_address( $ethereum_address ) {
+-		return sprintf( '%1$s@%2$s', esc_html( $ethereum_address ), esc_html( Unlock::get_client_id() ) );
++		return sprintf( '%1$s@%2$s', sanitize_text_field( $ethereum_address ), sanitize_text_field( Unlock::get_client_id() ) );
+ 	}
+ 
+ 	/**
+@@ -201,8 +201,16 @@ class Login {
+ 				)
+ 			);
+ 
++			if ( is_wp_error( $uid ) ) {
++				throw new \Exception( $uid->get_error_message() );
++			}
++
+ 			$user = get_user_by( 'id', $uid );
+ 
++			if ( ! $user instanceof WP_User ) {
++				throw new \Exception( __( 'Unable to create the user account.', 'unlock-protocol' ) );
++			}
++
+ 			update_user_meta( $user->ID, 'unlock_ethereum_address', $ethereum_address );
+ 
+ 			/**
+diff --git a/unlock-wordpress-plugin/inc/classes/class-unlock.php b/unlock-wordpress-plugin/inc/classes/class-unlock.php
+index d2b3f09..0afe3af 100644
+--- a/unlock-wordpress-plugin/inc/classes/class-unlock.php
++++ b/unlock-wordpress-plugin/inc/classes/class-unlock.php
+@@ -48,54 +48,88 @@ class Unlock {
+ 	}
+ 
+ 	/**
+-	 * Post call to validate if a user has access to a content.
++	 * Check if a user has access to a content through any of the given locks.
+ 	 *
+-	 * @param string $url Network RPC endpoint.
+-	 * @param string $lock_address Lock address.
+-	 * @param string $user_ethereum_address User ethereum address.
++	 * @param array       $networks            List of configured networks.
++	 * @param array       $locks               List of locks to validate against.
++	 * @param string|null $user_ethereum_address User ethereum address.
+ 	 *
+ 	 * @since 3.0.0
+ 	 *
+-	 * @return float|int|\WP_Error
++	 * @return bool
+ 	 */
+ 	public static function has_access( $networks, $locks, $user_ethereum_address = null ) {
+ 
++		if ( ! is_array( $locks ) || empty( $locks ) ) {
++			return false;
++		}
++
+ 		$has_unlocked = false;
+ 
+-		foreach($locks as $lock) {
+-			if (!$has_unlocked) {
+-				// Find the URL!
+-				foreach($networks as $network) {
+-					if ($network["network_id"] == $lock['network']) {
+-						$url = $network["network_rpc_endpoint"];
+-					}
+-				}
++		foreach ( $locks as $lock ) {
++			if ( $has_unlocked ) {
++				break;
++			}
+ 
+-				$validation = self::validate( $url, $lock['address'], $user_ethereum_address );
++			if ( empty( $lock['network'] ) || empty( $lock['address'] ) ) {
++				continue;
++			}
+ 
+-				if ( is_wp_error( $validation ) || ! isset( $validation['result'] ) ) {
++			// Find the RPC endpoint matching the lock's network.
++			$url = null;
++			foreach ( $networks as $network ) {
++				if (
++					isset( $network['network_id'], $network['network_rpc_endpoint'] ) &&
++					(int) $network['network_id'] === (int) $lock['network']
++				) {
++					$url = $network['network_rpc_endpoint'];
+ 					break;
+ 				}
+-				$has_unlocked = hexdec( $validation['result'] ) == 1;
+ 			}
++
++			if ( empty( $url ) ) {
++				continue;
++			}
++
++			$validation = self::validate( $url, $lock['address'], $user_ethereum_address );
++
++			if ( is_wp_error( $validation ) || ! isset( $validation['result'] ) ) {
++				continue;
++			}
++
++			$has_unlocked = hexdec( $validation['result'] ) == 1;
+ 		}
+ 
+ 		return $has_unlocked;
+ 	}
+ 
+ 	/**
+-	 * Post call to validate.
++	 * Perform an eth_call to getHasValidKey on a lock contract.
+ 	 *
+-	 * @param string $url Network RPC endpoint.
+-	 * @param string $lock_address Lock address.
+-	 * @param string $user_ethereum_address User ethereum address.
++	 * @param string      $url                   Network RPC endpoint.
++	 * @param string      $lock_address          Lock address.
++	 * @param string|null $user_ethereum_address User ethereum address.
+ 	 *
+ 	 * @since 3.0.0
+ 	 *
+-	 * @return float|int|\WP_Error
++	 * @return array|\WP_Error Decoded JSON-RPC response or WP_Error on failure.
+ 	 */
+ 	public static function validate( $url, $lock_address, $user_ethereum_address = null ) {
++
++		if ( ! filter_var( $url, FILTER_VALIDATE_URL ) ) {
++			return new \WP_Error( 'unlock_validate_error', __( 'Invalid RPC endpoint.', 'unlock-protocol' ) );
++		}
++
++		if ( ! is_string( $lock_address ) || ! preg_match( '/^0x[a-fA-F0-9]{40}$/', $lock_address ) ) {
++			return new \WP_Error( 'unlock_validate_error', __( 'Invalid lock address.', 'unlock-protocol' ) );
++		}
++
+ 		$user_ethereum_address = $user_ethereum_address ? $user_ethereum_address : up_get_user_ethereum_address();
++
++		if ( ! is_string( $user_ethereum_address ) || ! preg_match( '/^0x[a-fA-F0-9]{40}$/', $user_ethereum_address ) ) {
++			return new \WP_Error( 'unlock_validate_error', __( 'Invalid user ethereum address.', 'unlock-protocol' ) );
++		}
++
+ 		$user_ethereum_address = substr( $user_ethereum_address, 2 );
+ 
+ 		$params = apply_filters(
+@@ -119,24 +153,41 @@ class Unlock {
+ 			'redirection' => '30',
+ 			'httpversion' => '1.0',
+ 			'blocking'    => true,
++			'timeout'     => 15,
+ 		);
+ 
+-		$response = wp_remote_post( esc_url( $url ), $args );
++		$response = wp_remote_post( esc_url_raw( $url ), $args );
+ 
+ 		if ( is_wp_error( $response ) ) {
+-			return new \WP_Error( 'unlock_validate_error', $response );
++			return new \WP_Error( 'unlock_validate_error', $response->get_error_message() );
++		}
++
++		$response_code = wp_remote_retrieve_response_code( $response );
++
++		if ( 200 !== (int) $response_code ) {
++			return new \WP_Error(
++				'unlock_validate_error',
++				sprintf(
++					/* translators: %d: HTTP response code returned by the RPC endpoint. */
++					__( 'The RPC endpoint returned an unexpected status code: %d', 'unlock-protocol' ),
++					$response_code
++				)
++			);
+ 		}
+ 
+ 		$body = json_decode( wp_remote_retrieve_body( $response ), true );
+ 
++		if ( ! is_array( $body ) ) {
++			return new \WP_Error( 'unlock_validate_error', __( 'Invalid response from the RPC endpoint.', 'unlock-protocol' ) );
++		}
++
+ 		return $body;
+ 	}
+ 
+ 	/**
+ 	 * Get checkout url.
+ 	 *
+-	 * @param string $lock_address Lock address.
+-	 * @param string $network_id Network ID.
++	 * @param array  $locks List of locks to include in the paywall config.
+ 	 * @param string $redirect_uri Redirect URI.
+ 	 *
+ 	 * @since 3.0.0
+@@ -145,22 +196,30 @@ class Unlock {
+ 	 */
+ 	public static function get_checkout_url( $locks, $redirect_uri ) {
+ 		$paywall_locks = array();
+-		$settings = get_option( 'unlock_protocol_settings', array() );
++		$settings      = get_option( 'unlock_protocol_settings', array() );
+ 		// Let's add the default setup in the config too!
+ 
+ 		$default_paywall_config = array();
+-		if (isset($settings['general']['custom_paywall_config'])) {
+-			$default_paywall_config = json_decode($settings['general']['custom_paywall_config'], true);
++		if ( isset( $settings['general']['custom_paywall_config'] ) ) {
++			$decoded_paywall_config = json_decode( $settings['general']['custom_paywall_config'], true );
++
++			if ( is_array( $decoded_paywall_config ) ) {
++				$default_paywall_config = $decoded_paywall_config;
++			}
+ 		}
+ 
+-		foreach ($locks as $lock) {
+-			$paywall_locks[$lock["address"]] = array('network' => (int) $lock["network"],);
++		foreach ( $locks as $lock ) {
++			if ( empty( $lock['address'] ) || empty( $lock['network'] ) ) {
++				continue;
++			}
++
++			$paywall_locks[ $lock['address'] ] = array( 'network' => (int) $lock['network'] );
+ 		}
+ 
+ 		$paywall_config = apply_filters(
+ 			'unlock_protocol_paywall_config',
+ 			array_merge(
+-				$default_paywall_config ?? array(), 
++				$default_paywall_config,
+ 				array(
+ 					'locks'       => $paywall_locks,
+ 					'pessimistic' => true,
+@@ -273,22 +332,22 @@ class Unlock {
+ 	 */
+ 	public static function networks_list() {
+ 		$networks = array(
+-			'mainnet'  => array(
+-				'network_name'         => 'goerli',
+-				'network_id'           => 5,
+-				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/5',
+-			),
+-			'mainnet'  => array(
++			'mainnet'      => array(
+ 				'network_name'         => 'mainnet',
+ 				'network_id'           => 1,
+ 				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/1',
+ 			),
+-			'xdai'     => array(
++			'sepolia'      => array(
++				'network_name'         => 'sepolia',
++				'network_id'           => 11155111,
++				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/11155111',
++			),
++			'xdai'         => array(
+ 				'network_name'         => 'gnosis chain',
+ 				'network_id'           => 100,
+ 				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/100',
+ 			),
+-			'polygon'  => array(
++			'polygon'      => array(
+ 				'network_name'         => 'polygon',
+ 				'network_id'           => 137,
+ 				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/137',
+@@ -298,16 +357,26 @@ class Unlock {
+ 				'network_id'           => 10,
+ 				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/10',
+ 			),
+-			'arbitrum' => array(
++			'arbitrum'     => array(
+ 				'network_name'         => 'arbitrum',
+ 				'network_id'           => 42161,
+ 				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/42161',
+ 			),
+-			'binance'  => array(
++			'binance'      => array(
+ 				'network_name'         => 'BNB Chain',
+ 				'network_id'           => 56,
+ 				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/56',
+ 			),
++			'base'         => array(
++				'network_name'         => 'Base',
++				'network_id'           => 8453,
++				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/8453',
++			),
++			'base_sepolia' => array(
++				'network_name'         => 'Base Sepolia',
++				'network_id'           => 84532,
++				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/84532',
++			),
+ 		);
+ 
+ 		return apply_filters( 'unlock_protocol_network_list', $networks );
+@@ -395,8 +464,21 @@ class Unlock {
+ 	 * @return string HTML elements.
+ 	 */
+ 	public static function render_content( $locks, $content ) {
++
++		// Locks may arrive as a JSON string (full post/page meta) or as an array (block attribute).
++		if ( is_string( $locks ) ) {
++			$locks = json_decode( $locks, true );
++		}
++
++		if ( ! is_array( $locks ) || empty( $locks ) ) {
++			return $content;
++		}
++
+ 		// Bail out if current user is admin or the author.
+-		if ( current_user_can( 'manage_options' ) || ( get_the_author_meta( 'ID' ) === get_current_user_id() ) ) {
++		$current_user_id = get_current_user_id();
++		$author_id       = (int) get_the_author_meta( 'ID', get_the_ID() );
++
++		if ( current_user_can( 'manage_options' ) || ( $current_user_id && $author_id === $current_user_id ) ) {
+ 			return $content;
+ 		}
+ 
+diff --git a/unlock-wordpress-plugin/inc/classes/fullpostpage/class-unlock-box-full-post-page.php b/unlock-wordpress-plugin/inc/classes/fullpostpage/class-unlock-box-full-post-page.php
+index 43fa921..5bfa343 100644
+--- a/unlock-wordpress-plugin/inc/classes/fullpostpage/class-unlock-box-full-post-page.php
++++ b/unlock-wordpress-plugin/inc/classes/fullpostpage/class-unlock-box-full-post-page.php
+@@ -53,19 +53,35 @@ class Unlock_Box_Full_Post_Page {
+ 	 * 
+ 	 */
+ 	public function trigger_unlockprotocol_flow( $content ) {
++
++		// Only lock the main content of a singular post/page. Never filter
++		// feeds, excerpts, REST responses, widgets or secondary queries.
++		if ( is_admin() || ! is_singular() || ! in_the_loop() || ! is_main_query() ) {
++			return $content;
++		}
++
+ 		// Get the current post ID.
+ 		$post_id = get_the_ID();
+ 
++		if ( ! $post_id ) {
++			return $content;
++		}
++
+ 		// Retrieve the saved attributes.
+ 		$attributes = get_post_meta( $post_id, 'unlock_protocol_post_locks', true );
+ 
+-		if ( ! empty( $attributes ) ) {
+-			$locks = json_decode($attributes, true);
+-			// Call render_content() to trigger the Unlock Protocol flow.
+-			return Unlock::render_content( $locks, $content );
+-		} else {			
++		if ( empty( $attributes ) ) {
++			return $content;
++		}
++
++		$locks = json_decode( $attributes, true );
++
++		if ( ! is_array( $locks ) || empty( $locks ) ) {
+ 			return $content;
+ 		}
++
++		// Call render_content() to trigger the Unlock Protocol flow.
++		return Unlock::render_content( $locks, $content );
+ 	}
+ 
+ }
+diff --git a/unlock-wordpress-plugin/inc/classes/rest-api/class-settings.php b/unlock-wordpress-plugin/inc/classes/rest-api/class-settings.php
+index 8c31807..bb3dd18 100644
+--- a/unlock-wordpress-plugin/inc/classes/rest-api/class-settings.php
++++ b/unlock-wordpress-plugin/inc/classes/rest-api/class-settings.php
+@@ -127,29 +127,35 @@ class Settings extends Rest_Base {
+ 	 * @return \WP_Error|\WP_REST_Response
+ 	 */
+ 	public function delete_network( $request ) {
+-		$network_index = (int) sanitize_text_field( $request->get_param( 'network_index' ) );
++		$network_index = $request->get_param( 'network_index' );
+ 
+-		if ( '' === $network_index || ! is_int( $network_index ) ) {
++		if ( null === $network_index || '' === $network_index || ! is_numeric( $network_index ) ) {
+ 			return new \WP_Error(
+ 				'unlock_protocol_empty_data',
+ 				__( 'Inputs can not be empty!', 'unlock-protocol' ),
+-				[ 'status' => WP_Http::BAD_REQUEST ]
++				array( 'status' => WP_Http::BAD_REQUEST )
+ 			);
+ 		}
+ 
+-		$networks = array();
++		$network_index = (int) $network_index;
+ 
+ 		$settings = get_option( 'unlock_protocol_settings', array() );
++		$networks = isset( $settings['networks'] ) ? $settings['networks'] : array();
+ 
+-		if ( isset( $settings['networks'] ) ) {
+-			$networks = $settings['networks'];
++		if ( ! isset( $networks[ $network_index ] ) ) {
++			return new \WP_Error(
++				'unlock_protocol_invalid_network',
++				__( 'The network does not exist.', 'unlock-protocol' ),
++				array( 'status' => WP_Http::BAD_REQUEST )
++			);
+ 		}
+ 
+ 		// Removed network details.
+ 		$removed_network = $networks[ $network_index ];
+ 
+-		// Removing network.
++		// Removing network and re-indexing to keep a sequential list.
+ 		unset( $networks[ $network_index ] );
++		$networks = array_values( $networks );
+ 
+ 		$settings['networks'] = $networks;
+ 
+@@ -167,14 +173,49 @@ class Settings extends Rest_Base {
+ 	 *
+ 	 * @since 3.0.0
+ 	 *
+-	 * @return bool
++	 * @return bool|\WP_Error
+ 	 */
+ 	public function update_general_settings( $data ) {
+-		$data = array_map( 'sanitize_text_field', $data );
++		if ( ! is_array( $data ) ) {
++			return new \WP_Error(
++				'unlock_protocol_invalid_data',
++				__( 'Invalid settings payload.', 'unlock-protocol' ),
++				array( 'status' => WP_Http::BAD_REQUEST )
++			);
++		}
++
++		$color_fields = array(
++			'login_button_bg_color',
++			'login_button_text_color',
++			'checkout_button_bg_color',
++			'checkout_button_text_color',
++		);
++
++		$url_fields = array(
++			'checkout_url_base',
++			'locksmith_url_base',
++			'login_bg_image',
++			'checkout_bg_image',
++		);
++
++		$sanitized = array();
++
++		foreach ( $data as $key => $value ) {
++			$key = sanitize_key( $key );
++
++			if ( in_array( $key, $color_fields, true ) ) {
++				$color             = sanitize_hex_color( $value );
++				$sanitized[ $key ] = $color ? $color : '';
++			} elseif ( in_array( $key, $url_fields, true ) ) {
++				$sanitized[ $key ] = esc_url_raw( $value );
++			} else {
++				$sanitized[ $key ] = sanitize_text_field( $value );
++			}
++		}
+ 
+ 		$settings = get_option( 'unlock_protocol_settings', array() );
+ 
+-		$settings['general'] = $data;
++		$settings['general'] = $sanitized;
+ 
+ 		$update = update_option( 'unlock_protocol_settings', $settings, false );
+ 
+diff --git a/unlock-wordpress-plugin/inc/classes/utils/class-helper.php b/unlock-wordpress-plugin/inc/classes/utils/class-helper.php
+index a82fe87..0b6ca92 100644
+--- a/unlock-wordpress-plugin/inc/classes/utils/class-helper.php
++++ b/unlock-wordpress-plugin/inc/classes/utils/class-helper.php
+@@ -156,7 +156,8 @@ class Helper {
+ 		$count = 1;
+ 
+ 		while ( username_exists( $uname ) ) {
+-			$uname = $uname . '' . $count;
++			$uname = $username . $count;
++			++$count;
+ 		}
+ 
+ 		return $uname;
+diff --git a/unlock-wordpress-plugin/templates/login/button.php b/unlock-wordpress-plugin/templates/login/button.php
+index f54b9d6..e663325 100644
+--- a/unlock-wordpress-plugin/templates/login/button.php
++++ b/unlock-wordpress-plugin/templates/login/button.php
+@@ -11,7 +11,7 @@
+ 
+ <?php if ( $login_button_bg_color && $login_button_text_color ) : ?>
+ <style>
+-	<?php if ( $login_bg_image ) : ?>
++	<?php if ( ! empty( $login_bg_image ) ) : ?>
+ 	.login .login-button-container.blurred,
+ 	.login-button-container.blurred {
+ 		background: url('<?php echo esc_url( $login_bg_image ); ?>') no-repeat center center;
+diff --git a/unlock-wordpress-plugin/templates/login/checkout-button.php b/unlock-wordpress-plugin/templates/login/checkout-button.php
+index 51b3e61..654b831 100644
+--- a/unlock-wordpress-plugin/templates/login/checkout-button.php
++++ b/unlock-wordpress-plugin/templates/login/checkout-button.php
+@@ -11,7 +11,7 @@
+ 
+ <?php if ( $checkout_button_bg_color && $checkout_button_text_color ) : ?>
+ <style>
+-	<?php if ( $checkout_bg_image ) : ?>
++	<?php if ( ! empty( $checkout_bg_image ) ) : ?>
+ 	.checkout-button-container.blurred,
+ 	.checkout-button-container.blurred {
+ 		background: url('<?php echo esc_url( $checkout_bg_image ); ?>') no-repeat center center;
+diff --git a/unlock-wordpress-plugin/unlock-protocol.php b/unlock-wordpress-plugin/unlock-protocol.php
+index b49d5d8..a776938 100644
+--- a/unlock-wordpress-plugin/unlock-protocol.php
++++ b/unlock-wordpress-plugin/unlock-protocol.php
+@@ -6,6 +6,8 @@
+  * Author:      Unlock
+  * Author URI:  https://unlock-protocol.com
+  * Version:     4.0.1
++ * Requires at least: 5.9
++ * Requires PHP: 7.4
+  * Text Domain: unlock-protocol
+  *
+  * @package unlock-protocol

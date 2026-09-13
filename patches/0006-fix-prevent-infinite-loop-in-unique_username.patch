@@ -1,0 +1,30 @@
+From 44c3bf7ac6a78dac7e2a3533c16700c2552a5cce Mon Sep 17 00:00:00 2001
+From: SrLLamaDev <srllamadev@gmail.com>
+Date: Sun, 13 Sep 2026 07:15:48 -0400
+Subject: [PATCH 06/16] fix: prevent infinite loop in unique_username
+
+The loop never incremented $count and kept appending to the already
+modified username, so an existing username caused an infinite loop.
+Build each candidate from the original username and increment the
+counter.
+---
+ unlock-wordpress-plugin/inc/classes/utils/class-helper.php | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/unlock-wordpress-plugin/inc/classes/utils/class-helper.php b/unlock-wordpress-plugin/inc/classes/utils/class-helper.php
+index a82fe87..0b6ca92 100644
+--- a/unlock-wordpress-plugin/inc/classes/utils/class-helper.php
++++ b/unlock-wordpress-plugin/inc/classes/utils/class-helper.php
+@@ -156,7 +156,8 @@ class Helper {
+ 		$count = 1;
+ 
+ 		while ( username_exists( $uname ) ) {
+-			$uname = $uname . '' . $count;
++			$uname = $username . $count;
++			++$count;
+ 		}
+ 
+ 		return $uname;
+-- 
+2.44.0.windows.1
+

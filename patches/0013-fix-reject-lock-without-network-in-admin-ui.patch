@@ -1,0 +1,97 @@
+From 347795ae7a38331ca47ce38db761a1dab04842dc Mon Sep 17 00:00:00 2001
+From: SrLLamaDev <srllamadev@gmail.com>
+Date: Sun, 13 Sep 2026 07:17:47 -0400
+Subject: [PATCH 13/16] fix: reject lock without network in admin ui
+
+lockValid() treated a lock with network === -1 (the 'None' option) as
+valid, contradicting locksValid(), so a lock could be saved without a
+network. Return false for that case, disable the submit button, add the
+missing React key/dependency and guard against a missing networks list.
+---
+ src/assets/js/admin-locks.js                |  6 +++---
+ src/assets/js/admin/utils.js                |  2 +-
+ src/assets/js/blocks/unlock-content/edit.js | 16 +++++-----------
+ 3 files changed, 9 insertions(+), 15 deletions(-)
+
+diff --git a/src/assets/js/admin-locks.js b/src/assets/js/admin-locks.js
+index 9372115..e0e0979 100644
+--- a/src/assets/js/admin-locks.js
++++ b/src/assets/js/admin-locks.js
+@@ -23,7 +23,7 @@ export const AdminLocks = ({ onSaveNewLock, removeLock, locks }) => {
+       <ul>
+         {locks.map((lock, id) => {
+           return (
+-            <Lock lock={lock} onRemove={() => {
++            <Lock key={lock.address || id} lock={lock} onRemove={() => {
+               removeLock(id);
+             }} />
+           );
+@@ -98,7 +98,7 @@ const AddLockForm = ({ handleSave }) => {
+       />
+       {error && <p className="lock-warning">{error}</p>}
+       <Button
+-        disabled={!network || !isAddressValid(address)}
++        disabled={!network || network === -1 || !isAddressValid(address)}
+         className="add-lock"
+         type="submit"
+       >
+@@ -127,7 +127,7 @@ const Lock = ({ lock, onRemove }) => {
+         }
+       })
+     })
+-  }, [lock.network]);
++  }, [lock.network, lock.address]);
+ 
+   return <li style={{
+     display: "flex",
+diff --git a/src/assets/js/admin/utils.js b/src/assets/js/admin/utils.js
+index dfce444..0d1858e 100644
+--- a/src/assets/js/admin/utils.js
++++ b/src/assets/js/admin/utils.js
+@@ -10,7 +10,7 @@ export const getEthereumNetworksFromSettings = () => {
+     path: "/unlock-protocol/v1/settings",
+   })
+     .then((resp) => {
+-      let networks = resp.networks;
++      let networks = resp.networks || {};
+       let selectOptions = [
+         {
+           label: __("None", "unlock-protocol"),
+diff --git a/src/assets/js/blocks/unlock-content/edit.js b/src/assets/js/blocks/unlock-content/edit.js
+index 2fcd9fc..d1f1f2e 100644
+--- a/src/assets/js/blocks/unlock-content/edit.js
++++ b/src/assets/js/blocks/unlock-content/edit.js
+@@ -23,16 +23,10 @@ import { AdminLocks } from "../../admin-locks";
+  * @returns
+  */
+ const locksValid = (locks) => {
+-  let valid = true;
+-  if (locks.length === 0) {
+-    valid = false;
++  if (!Array.isArray(locks) || locks.length === 0) {
++    return false;
+   }
+-  locks.forEach((lock) => {
+-    if (lock.network === -1 || !lockValid(lock)) {
+-      valid = false;
+-    }
+-  });
+-  return valid;
++  return locks.every((lock) => lockValid(lock));
+ };
+ 
+ /**
+@@ -41,8 +35,8 @@ const locksValid = (locks) => {
+  * @returns
+  */
+ const lockValid = (lock) => {
+-  if (lock.network === -1) {
+-    return true;
++  if (!lock || lock.network === -1) {
++    return false;
+   }
+   if (!lock.address) {
+     return false;
+-- 
+2.44.0.windows.1
+

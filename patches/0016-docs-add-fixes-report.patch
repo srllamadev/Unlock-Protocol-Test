@@ -1,0 +1,97 @@
+From 88d0a72d84a2f6fa94ffdb3eb799c0bb525748dd Mon Sep 17 00:00:00 2001
+From: SrLLamaDev <srllamadev@gmail.com>
+Date: Sun, 13 Sep 2026 07:19:13 -0400
+Subject: [PATCH 16/16] docs: add fixes report
+
+Summarize every fix in this branch with the affected files and a short
+testing guide, so the change can be reviewed and reproduced.
+---
+ FIXES.md | 76 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 76 insertions(+)
+ create mode 100644 FIXES.md
+
+diff --git a/FIXES.md b/FIXES.md
+new file mode 100644
+index 0000000..2de87cc
+--- /dev/null
++++ b/FIXES.md
+@@ -0,0 +1,76 @@
++# Fixes applied to the Unlock Protocol WordPress plugin
++
++This branch fixes functional, security and compatibility issues found during
++an audit of the plugin. Each change is a separate, atomic commit.
++
++## Functional
++
++- **Duplicate network key (`inc/classes/class-unlock.php`)** — `networks_list()`
++  used the `mainnet` key twice, so the Goerli entry was silently overwritten.
++  Goerli is no longer served by the Unlock RPC proxy (HTTP 404). The default
++  list now uses unique keys and includes Sepolia, Base Sepolia and Base.
++- **Undefined RPC URL in `has_access()` (`inc/classes/class-unlock.php`)** —
++  `$url` was read before being initialized, so a lock pointing to an
++  unconfigured network could be validated against a stale endpoint. The URL is
++  now resolved per lock and missing network/address values are skipped.
++- **`validate()` hardening (`inc/classes/class-unlock.php`)** — validates the
++  lock address and user address, uses `esc_url_raw()` for the request URL,
++  sets a 15s timeout and checks the HTTP status code before decoding the
++  response. Prevents the PHP 8.1 `substr(null, 2)` deprecation.
++- **Locks normalization (`inc/classes/class-unlock.php`, `inc/classes/blocks/class-unlock-box-block.php`)** —
++  `render_content()` no longer iterates over `null` (invalid decoded JSON) and
++  the block callback checks `$attributes['locks']` exists.
++- **Full post/page filter scope (`inc/classes/fullpostpage/class-unlock-box-full-post-page.php`)** —
++  the `the_content` filter now only runs on the main loop of a singular
++  post/page, not in feeds, excerpts, REST responses or secondary queries.
++- **Infinite loop in `Helper::unique_username()` (`inc/classes/utils/class-helper.php`)** —
++  `$count` was never incremented.
++- **Malformed locks in `get_checkout_url()` (`inc/classes/class-unlock.php`)** —
++  skips locks without address/network and only merges a decoded paywall config
++  when it is an array.
++- **Admin UI accepted locks without a network (`src/assets/js/admin-locks.js`,
++  `src/assets/js/blocks/unlock-content/edit.js`)** — `lockValid()` returned
++  `true` for `network === -1`; the submit button is now disabled and the
++  component guards against a missing networks list.
++
++## Security
++
++- **Network deletion validation (`inc/classes/rest-api/class-settings.php`)** —
++  the empty check ran after the `(int)` cast (always false) and an unknown
++  index produced an undefined array key warning. The raw parameter is now
++  validated and the list re-indexed after removal.
++- **General settings sanitization (`inc/classes/rest-api/class-settings.php`)** —
++  rejects non-array payloads, sanitizes colors with `sanitize_hex_color()` and
++  URLs with `esc_url_raw()`.
++- **OAuth registration (`inc/classes/class-login.php`)** — handles `WP_Error`
++  from `wp_insert_user()` and a failed user lookup instead of fataling, and
++  builds the synthetic email with `sanitize_text_field()`.
++- **Template variables (`templates/login/button.php`,
++  `templates/login/checkout-button.php`)** — guards the optional background
++  image variables with `empty()`.
++
++## Compatibility and maintenance
++
++- **Asset version (`inc/classes/class-assets.php`)** — `get_file_version()`
++  passed a URL to `file_exists()`/`filemtime()`; it now uses the filesystem
++  build directory.
++- **Editor assets (`inc/classes/class-blocks.php`, `inc/classes/class-fullpostpage.php`)** —
++  skips registration when the compiled asset files are missing (source
++  checkouts before a build) instead of emitting warnings.
++- **Metadata (`README.txt`, `unlock-protocol.php`)** — updated the tested
++  WordPress version, minimum PHP version, plugin header requirements and a
++  malformed link.
++
++## How to test
++
++1. Clone this branch and install dependencies: `yarn install`.
++2. Build the assets: `yarn build:all`.
++3. Symlink or copy `unlock-wordpress-plugin/` into `wp-content/plugins/` and
++   activate the plugin.
++4. Configure a lock deployed on a supported testnet (Sepolia or Base Sepolia)
++   and protect a post/page or a Gutenberg block.
++5. Verify that users without a key see the checkout button and users with a
++   key see the content.
++
++> Note: JavaScript dependencies were not upgraded in this branch to keep the
++> diff focused; that is tracked as a follow-up.
+-- 
+2.44.0.windows.1
+

@@ -1,0 +1,94 @@
+From cafafd28f2a92348c3ad01db399c2138a286117b Mon Sep 17 00:00:00 2001
+From: SrLLamaDev <srllamadev@gmail.com>
+Date: Sun, 13 Sep 2026 07:14:32 -0400
+Subject: [PATCH 02/16] fix: guard against undefined rpc url in has_access
+
+has_access() used $url before it was initialized, so a lock pointing
+to an unconfigured network could be validated against a stale or
+undefined RPC endpoint. Initialize $url per lock, skip locks with
+missing network/address, and continue to the next lock instead of
+aborting the whole loop on the first failed validation.
+---
+ .../inc/classes/class-unlock.php              | 52 +++++++++++++------
+ 1 file changed, 36 insertions(+), 16 deletions(-)
+
+diff --git a/unlock-wordpress-plugin/inc/classes/class-unlock.php b/unlock-wordpress-plugin/inc/classes/class-unlock.php
+index ad3cd23..2f75631 100644
+--- a/unlock-wordpress-plugin/inc/classes/class-unlock.php
++++ b/unlock-wordpress-plugin/inc/classes/class-unlock.php
+@@ -48,36 +48,56 @@ class Unlock {
+ 	}
+ 
+ 	/**
+-	 * Post call to validate if a user has access to a content.
++	 * Check if a user has access to a content through any of the given locks.
+ 	 *
+-	 * @param string $url Network RPC endpoint.
+-	 * @param string $lock_address Lock address.
+-	 * @param string $user_ethereum_address User ethereum address.
++	 * @param array       $networks            List of configured networks.
++	 * @param array       $locks               List of locks to validate against.
++	 * @param string|null $user_ethereum_address User ethereum address.
+ 	 *
+ 	 * @since 3.0.0
+ 	 *
+-	 * @return float|int|\WP_Error
++	 * @return bool
+ 	 */
+ 	public static function has_access( $networks, $locks, $user_ethereum_address = null ) {
+ 
++		if ( ! is_array( $locks ) || empty( $locks ) ) {
++			return false;
++		}
++
+ 		$has_unlocked = false;
+ 
+-		foreach($locks as $lock) {
+-			if (!$has_unlocked) {
+-				// Find the URL!
+-				foreach($networks as $network) {
+-					if ($network["network_id"] == $lock['network']) {
+-						$url = $network["network_rpc_endpoint"];
+-					}
+-				}
++		foreach ( $locks as $lock ) {
++			if ( $has_unlocked ) {
++				break;
++			}
+ 
+-				$validation = self::validate( $url, $lock['address'], $user_ethereum_address );
++			if ( empty( $lock['network'] ) || empty( $lock['address'] ) ) {
++				continue;
++			}
+ 
+-				if ( is_wp_error( $validation ) || ! isset( $validation['result'] ) ) {
++			// Find the RPC endpoint matching the lock's network.
++			$url = null;
++			foreach ( $networks as $network ) {
++				if (
++					isset( $network['network_id'], $network['network_rpc_endpoint'] ) &&
++					(int) $network['network_id'] === (int) $lock['network']
++				) {
++					$url = $network['network_rpc_endpoint'];
+ 					break;
+ 				}
+-				$has_unlocked = hexdec( $validation['result'] ) == 1;
+ 			}
++
++			if ( empty( $url ) ) {
++				continue;
++			}
++
++			$validation = self::validate( $url, $lock['address'], $user_ethereum_address );
++
++			if ( is_wp_error( $validation ) || ! isset( $validation['result'] ) ) {
++				continue;
++			}
++
++			$has_unlocked = hexdec( $validation['result'] ) == 1;
+ 		}
+ 
+ 		return $has_unlocked;
+-- 
+2.44.0.windows.1
+

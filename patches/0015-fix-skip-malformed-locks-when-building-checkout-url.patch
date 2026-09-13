@@ -1,0 +1,66 @@
+From accf6e500ec07a7c3428b56d75d714a7cc63a888 Mon Sep 17 00:00:00 2001
+From: SrLLamaDev <srllamadev@gmail.com>
+Date: Sun, 13 Sep 2026 07:18:49 -0400
+Subject: [PATCH 15/16] fix: skip malformed locks when building checkout url
+
+get_checkout_url() read $lock['address'] and $lock['network'] without
+checking them and merged a possibly non-array decoded paywall config.
+Skip incomplete locks and only merge decoded config when it is an array.
+---
+ .../inc/classes/class-unlock.php              | 23 ++++++++++++-------
+ 1 file changed, 15 insertions(+), 8 deletions(-)
+
+diff --git a/unlock-wordpress-plugin/inc/classes/class-unlock.php b/unlock-wordpress-plugin/inc/classes/class-unlock.php
+index f12579c..0afe3af 100644
+--- a/unlock-wordpress-plugin/inc/classes/class-unlock.php
++++ b/unlock-wordpress-plugin/inc/classes/class-unlock.php
+@@ -187,8 +187,7 @@ class Unlock {
+ 	/**
+ 	 * Get checkout url.
+ 	 *
+-	 * @param string $lock_address Lock address.
+-	 * @param string $network_id Network ID.
++	 * @param array  $locks List of locks to include in the paywall config.
+ 	 * @param string $redirect_uri Redirect URI.
+ 	 *
+ 	 * @since 3.0.0
+@@ -197,22 +196,30 @@ class Unlock {
+ 	 */
+ 	public static function get_checkout_url( $locks, $redirect_uri ) {
+ 		$paywall_locks = array();
+-		$settings = get_option( 'unlock_protocol_settings', array() );
++		$settings      = get_option( 'unlock_protocol_settings', array() );
+ 		// Let's add the default setup in the config too!
+ 
+ 		$default_paywall_config = array();
+-		if (isset($settings['general']['custom_paywall_config'])) {
+-			$default_paywall_config = json_decode($settings['general']['custom_paywall_config'], true);
++		if ( isset( $settings['general']['custom_paywall_config'] ) ) {
++			$decoded_paywall_config = json_decode( $settings['general']['custom_paywall_config'], true );
++
++			if ( is_array( $decoded_paywall_config ) ) {
++				$default_paywall_config = $decoded_paywall_config;
++			}
+ 		}
+ 
+-		foreach ($locks as $lock) {
+-			$paywall_locks[$lock["address"]] = array('network' => (int) $lock["network"],);
++		foreach ( $locks as $lock ) {
++			if ( empty( $lock['address'] ) || empty( $lock['network'] ) ) {
++				continue;
++			}
++
++			$paywall_locks[ $lock['address'] ] = array( 'network' => (int) $lock['network'] );
+ 		}
+ 
+ 		$paywall_config = apply_filters(
+ 			'unlock_protocol_paywall_config',
+ 			array_merge(
+-				$default_paywall_config ?? array(), 
++				$default_paywall_config,
+ 				array(
+ 					'locks'       => $paywall_locks,
+ 					'pessimistic' => true,
+-- 
+2.44.0.windows.1
+

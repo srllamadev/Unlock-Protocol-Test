@@ -1,0 +1,63 @@
+From 51e05f28fbdd078d77ad63981dcccedb958bd750 Mon Sep 17 00:00:00 2001
+From: SrLLamaDev <srllamadev@gmail.com>
+Date: Sun, 13 Sep 2026 07:16:36 -0400
+Subject: [PATCH 09/16] fix: validate network index before deletion
+
+The empty check in delete_network() ran after casting to int, so it was
+always false, and an out-of-range index triggered an undefined array key
+warning. Validate the raw parameter, reject unknown indexes and
+re-index the list after removal so the REST response stays an array.
+---
+ .../inc/classes/rest-api/class-settings.php   | 20 ++++++++++++-------
+ 1 file changed, 13 insertions(+), 7 deletions(-)
+
+diff --git a/unlock-wordpress-plugin/inc/classes/rest-api/class-settings.php b/unlock-wordpress-plugin/inc/classes/rest-api/class-settings.php
+index 8c31807..770356b 100644
+--- a/unlock-wordpress-plugin/inc/classes/rest-api/class-settings.php
++++ b/unlock-wordpress-plugin/inc/classes/rest-api/class-settings.php
+@@ -127,29 +127,35 @@ class Settings extends Rest_Base {
+ 	 * @return \WP_Error|\WP_REST_Response
+ 	 */
+ 	public function delete_network( $request ) {
+-		$network_index = (int) sanitize_text_field( $request->get_param( 'network_index' ) );
++		$network_index = $request->get_param( 'network_index' );
+ 
+-		if ( '' === $network_index || ! is_int( $network_index ) ) {
++		if ( null === $network_index || '' === $network_index || ! is_numeric( $network_index ) ) {
+ 			return new \WP_Error(
+ 				'unlock_protocol_empty_data',
+ 				__( 'Inputs can not be empty!', 'unlock-protocol' ),
+-				[ 'status' => WP_Http::BAD_REQUEST ]
++				array( 'status' => WP_Http::BAD_REQUEST )
+ 			);
+ 		}
+ 
+-		$networks = array();
++		$network_index = (int) $network_index;
+ 
+ 		$settings = get_option( 'unlock_protocol_settings', array() );
++		$networks = isset( $settings['networks'] ) ? $settings['networks'] : array();
+ 
+-		if ( isset( $settings['networks'] ) ) {
+-			$networks = $settings['networks'];
++		if ( ! isset( $networks[ $network_index ] ) ) {
++			return new \WP_Error(
++				'unlock_protocol_invalid_network',
++				__( 'The network does not exist.', 'unlock-protocol' ),
++				array( 'status' => WP_Http::BAD_REQUEST )
++			);
+ 		}
+ 
+ 		// Removed network details.
+ 		$removed_network = $networks[ $network_index ];
+ 
+-		// Removing network.
++		// Removing network and re-indexing to keep a sequential list.
+ 		unset( $networks[ $network_index ] );
++		$networks = array_values( $networks );
+ 
+ 		$settings['networks'] = $networks;
+ 
+-- 
+2.44.0.windows.1
+

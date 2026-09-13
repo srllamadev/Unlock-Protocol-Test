@@ -1,0 +1,62 @@
+From d121353b64a567bf31a16cec5f2037d7b3f68281 Mon Sep 17 00:00:00 2001
+From: SrLLamaDev <srllamadev@gmail.com>
+Date: Sun, 13 Sep 2026 07:15:37 -0400
+Subject: [PATCH 05/16] fix: only filter main singular content for full-post
+ locking
+
+The the_content filter ran in every context (feeds, excerpts, REST,
+widgets, secondary queries), leaking the lock flow and triggering RPC
+calls where they do not belong. Bail out unless we are in the main loop
+of a singular post/page and safely decode the stored locks.
+---
+ .../class-unlock-box-full-post-page.php       | 26 +++++++++++++++----
+ 1 file changed, 21 insertions(+), 5 deletions(-)
+
+diff --git a/unlock-wordpress-plugin/inc/classes/fullpostpage/class-unlock-box-full-post-page.php b/unlock-wordpress-plugin/inc/classes/fullpostpage/class-unlock-box-full-post-page.php
+index 43fa921..5bfa343 100644
+--- a/unlock-wordpress-plugin/inc/classes/fullpostpage/class-unlock-box-full-post-page.php
++++ b/unlock-wordpress-plugin/inc/classes/fullpostpage/class-unlock-box-full-post-page.php
+@@ -53,19 +53,35 @@ class Unlock_Box_Full_Post_Page {
+ 	 * 
+ 	 */
+ 	public function trigger_unlockprotocol_flow( $content ) {
++
++		// Only lock the main content of a singular post/page. Never filter
++		// feeds, excerpts, REST responses, widgets or secondary queries.
++		if ( is_admin() || ! is_singular() || ! in_the_loop() || ! is_main_query() ) {
++			return $content;
++		}
++
+ 		// Get the current post ID.
+ 		$post_id = get_the_ID();
+ 
++		if ( ! $post_id ) {
++			return $content;
++		}
++
+ 		// Retrieve the saved attributes.
+ 		$attributes = get_post_meta( $post_id, 'unlock_protocol_post_locks', true );
+ 
+-		if ( ! empty( $attributes ) ) {
+-			$locks = json_decode($attributes, true);
+-			// Call render_content() to trigger the Unlock Protocol flow.
+-			return Unlock::render_content( $locks, $content );
+-		} else {			
++		if ( empty( $attributes ) ) {
++			return $content;
++		}
++
++		$locks = json_decode( $attributes, true );
++
++		if ( ! is_array( $locks ) || empty( $locks ) ) {
+ 			return $content;
+ 		}
++
++		// Call render_content() to trigger the Unlock Protocol flow.
++		return Unlock::render_content( $locks, $content );
+ 	}
+ 
+ }
+-- 
+2.44.0.windows.1
+

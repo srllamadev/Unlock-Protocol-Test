@@ -1,0 +1,57 @@
+From e5cf1b22bfa48c355a68c0976e77187af8dcf7b0 Mon Sep 17 00:00:00 2001
+From: SrLLamaDev <srllamadev@gmail.com>
+Date: Sun, 13 Sep 2026 07:15:23 -0400
+Subject: [PATCH 04/16] fix: normalize locks before rendering protected content
+
+render_content() iterated over a locks value that could be null (invalid
+decoded JSON) and the block render callback read $attributes['locks']
+without checking it exists. Normalize strings/arrays, bail out when no
+lock is configured and resolve the author against the current post.
+---
+ .../inc/classes/blocks/class-unlock-box-block.php |  2 +-
+ .../inc/classes/class-unlock.php                  | 15 ++++++++++++++-
+ 2 files changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/unlock-wordpress-plugin/inc/classes/blocks/class-unlock-box-block.php b/unlock-wordpress-plugin/inc/classes/blocks/class-unlock-box-block.php
+index c48d577..a125019 100644
+--- a/unlock-wordpress-plugin/inc/classes/blocks/class-unlock-box-block.php
++++ b/unlock-wordpress-plugin/inc/classes/blocks/class-unlock-box-block.php
+@@ -83,7 +83,7 @@ class Unlock_Box_Block {
+ 	 * @return string HTML elements.
+ 	 */
+ 	public function render_block( $attributes, $content ) {
+-		$locks = $attributes['locks'];
++		$locks = isset( $attributes['locks'] ) ? $attributes['locks'] : array();
+ 		return Unlock::render_content( $locks, $content );
+ 	}
+ }
+diff --git a/unlock-wordpress-plugin/inc/classes/class-unlock.php b/unlock-wordpress-plugin/inc/classes/class-unlock.php
+index 21d5bdb..f12579c 100644
+--- a/unlock-wordpress-plugin/inc/classes/class-unlock.php
++++ b/unlock-wordpress-plugin/inc/classes/class-unlock.php
+@@ -457,8 +457,21 @@ class Unlock {
+ 	 * @return string HTML elements.
+ 	 */
+ 	public static function render_content( $locks, $content ) {
++
++		// Locks may arrive as a JSON string (full post/page meta) or as an array (block attribute).
++		if ( is_string( $locks ) ) {
++			$locks = json_decode( $locks, true );
++		}
++
++		if ( ! is_array( $locks ) || empty( $locks ) ) {
++			return $content;
++		}
++
+ 		// Bail out if current user is admin or the author.
+-		if ( current_user_can( 'manage_options' ) || ( get_the_author_meta( 'ID' ) === get_current_user_id() ) ) {
++		$current_user_id = get_current_user_id();
++		$author_id       = (int) get_the_author_meta( 'ID', get_the_ID() );
++
++		if ( current_user_can( 'manage_options' ) || ( $current_user_id && $author_id === $current_user_id ) ) {
+ 			return $content;
+ 		}
+ 
+-- 
+2.44.0.windows.1
+

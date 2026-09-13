@@ -1,0 +1,28 @@
+From 412bea35553e2536a272b46b01f358f332923372 Mon Sep 17 00:00:00 2001
+From: SrLLamaDev <srllamadev@gmail.com>
+Date: Sun, 13 Sep 2026 07:15:59 -0400
+Subject: [PATCH 07/16] fix: use filesystem path for asset version
+
+get_file_version() passed UNLOCK_PROTOCOL_BUILD_URI (a URL) to
+file_exists()/filemtime(), which always failed, so assets were never
+cache-busted. Use UNLOCK_PROTOCOL_BUILD_DIR instead.
+---
+ unlock-wordpress-plugin/inc/classes/class-assets.php | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/unlock-wordpress-plugin/inc/classes/class-assets.php b/unlock-wordpress-plugin/inc/classes/class-assets.php
+index e6137a3..20e7ead 100644
+--- a/unlock-wordpress-plugin/inc/classes/class-assets.php
++++ b/unlock-wordpress-plugin/inc/classes/class-assets.php
+@@ -236,7 +236,7 @@ class Assets {
+ 			return $ver;
+ 		}
+ 
+-		$file_path = sprintf( '%s/%s', UNLOCK_PROTOCOL_BUILD_URI, $file );
++		$file_path = sprintf( '%s/%s', UNLOCK_PROTOCOL_BUILD_DIR, $file );
+ 
+ 		return file_exists( $file_path ) ? filemtime( $file_path ) : false;
+ 	}
+-- 
+2.44.0.windows.1
+

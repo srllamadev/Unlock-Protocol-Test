@@ -1,0 +1,114 @@
+From c32708cc02037fa9cf0b6100bd88e5ef5ca4eed7 Mon Sep 17 00:00:00 2001
+From: SrLLamaDev <srllamadev@gmail.com>
+Date: Sun, 13 Sep 2026 07:16:24 -0400
+Subject: [PATCH 08/16] fix: guard block asset registration when build is
+ missing
+
+Both editor asset classes called include/filemtime() on compiled files
+without checking they exist, producing warnings when the plugin runs
+from a source checkout before assets are built. Skip registration when
+the asset files are absent and fall back to an empty dependency list.
+---
+ .../inc/classes/class-blocks.php              | 21 +++++++++++++++----
+ .../inc/classes/class-fullpostpage.php        | 21 +++++++++++++++----
+ 2 files changed, 34 insertions(+), 8 deletions(-)
+
+diff --git a/unlock-wordpress-plugin/inc/classes/class-blocks.php b/unlock-wordpress-plugin/inc/classes/class-blocks.php
+index 27be0b1..27dcac1 100644
+--- a/unlock-wordpress-plugin/inc/classes/class-blocks.php
++++ b/unlock-wordpress-plugin/inc/classes/class-blocks.php
+@@ -62,14 +62,21 @@ class Blocks {
+ 	 * @return void
+ 	 */
+ 	private function enqueue_scripts() {
++		$script_path = UNLOCK_PROTOCOL_PATH . '/assets/build/js/blocks.js';
++		$asset_path  = UNLOCK_PROTOCOL_BUILD_DIR . '/js/blocks.asset.php';
++
++		if ( ! file_exists( $script_path ) || ! file_exists( $asset_path ) ) {
++			return;
++		}
++
+ 		// Automatically load dependencies and version.
+-		$asset_file = include UNLOCK_PROTOCOL_BUILD_DIR . '/js/blocks.asset.php';
++		$asset_file = include $asset_path;
+ 
+ 		wp_register_script(
+ 			'unlock-protocol-blocks',
+ 			UNLOCK_PROTOCOL_URL . '/assets/build/js/blocks.js',
+-			$asset_file['dependencies'],
+-			filemtime( UNLOCK_PROTOCOL_PATH . '/assets/build/js/blocks.js' ),
++			isset( $asset_file['dependencies'] ) ? $asset_file['dependencies'] : array(),
++			filemtime( $script_path ),
+ 			true
+ 		);
+ 
+@@ -84,11 +91,17 @@ class Blocks {
+ 	 * @return void
+ 	 */
+ 	private function enqueue_styles() {
++		$style_path = UNLOCK_PROTOCOL_PATH . '/assets/build/css/blocks.css';
++
++		if ( ! file_exists( $style_path ) ) {
++			return;
++		}
++
+ 		wp_register_style(
+ 			'unlock-protocol-blocks',
+ 			UNLOCK_PROTOCOL_URL . '/assets/build/css/blocks.css',
+ 			array(),
+-			filemtime( UNLOCK_PROTOCOL_PATH . '/assets/build/css/blocks.css' )
++			filemtime( $style_path )
+ 		);
+ 
+ 		wp_enqueue_style( 'unlock-protocol-blocks' );
+diff --git a/unlock-wordpress-plugin/inc/classes/class-fullpostpage.php b/unlock-wordpress-plugin/inc/classes/class-fullpostpage.php
+index b374038..f0b5f40 100644
+--- a/unlock-wordpress-plugin/inc/classes/class-fullpostpage.php
++++ b/unlock-wordpress-plugin/inc/classes/class-fullpostpage.php
+@@ -81,14 +81,21 @@ class FullPostPage {
+ 	 * @return void
+ 	 */
+ 	private function enqueue_scripts() {
++		$script_path = UNLOCK_PROTOCOL_PATH . '/assets/build/js/full-post-page.js';
++		$asset_path  = UNLOCK_PROTOCOL_BUILD_DIR . '/js/full-post-page.asset.php';
++
++		if ( ! file_exists( $script_path ) || ! file_exists( $asset_path ) ) {
++			return;
++		}
++
+ 		// Automatically load dependencies and version.
+-		$asset_file = include UNLOCK_PROTOCOL_BUILD_DIR . '/js/full-post-page.asset.php';
++		$asset_file = include $asset_path;
+ 
+ 		wp_register_script(
+ 			'unlock-protocol-full-post-page',
+ 			UNLOCK_PROTOCOL_URL . '/assets/build/js/full-post-page.js',
+-			$asset_file['dependencies'],
+-			filemtime( UNLOCK_PROTOCOL_PATH . '/assets/build/js/full-post-page.js' ),
++			isset( $asset_file['dependencies'] ) ? $asset_file['dependencies'] : array(),
++			filemtime( $script_path ),
+ 			true
+ 		);
+ 
+@@ -103,11 +110,17 @@ class FullPostPage {
+ 	 * @return void
+ 	 */
+ 	private function enqueue_styles() {
++		$style_path = UNLOCK_PROTOCOL_PATH . '/assets/build/css/full-post-page.css';
++
++		if ( ! file_exists( $style_path ) ) {
++			return;
++		}
++
+ 		wp_register_style(
+ 			'unlock-protocol-full-post-page',
+ 			UNLOCK_PROTOCOL_URL . '/assets/build/css/full-post-page.css',
+ 			array(),
+-			filemtime( UNLOCK_PROTOCOL_PATH . '/assets/build/css/full-post-page.css' )
++			filemtime( $style_path )
+ 		);
+ 
+ 		wp_enqueue_style( 'unlock-protocol-full-post-page' );
+-- 
+2.44.0.windows.1
+

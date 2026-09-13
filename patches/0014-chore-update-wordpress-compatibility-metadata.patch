@@ -1,0 +1,55 @@
+From 2bf93984a9925ae4b8ef2862ad9810c09133df4c Mon Sep 17 00:00:00 2001
+From: SrLLamaDev <srllamadev@gmail.com>
+Date: Sun, 13 Sep 2026 07:18:08 -0400
+Subject: [PATCH 14/16] chore: update wordpress compatibility metadata
+
+Bump the tested WordPress version, set a realistic minimum PHP version
+and declare Requires at least/Requires PHP in the plugin header. Also
+fix a malformed link and the deprecated Goerli reference in README.txt.
+---
+ README.txt                                  | 8 ++++----
+ unlock-wordpress-plugin/unlock-protocol.php | 2 ++
+ 2 files changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/README.txt b/README.txt
+index 09fa555..9fb7cf2 100644
+--- a/README.txt
++++ b/README.txt
+@@ -1,9 +1,9 @@
+ === Unlock Protocol ===
+ Contributors: julien51
+ Tags: paywall, ethereum, monetization, unlock, membership, subscription, member
+-Requires at least: 5.1
+-Tested up to: 5.9
+-Requires PHP: 7.0
++Requires at least: 5.9
++Tested up to: 7.1
++Requires PHP: 7.4
+ Stable tag: 4.0.1
+ License: GPLv3
+ License URI: https://github.com/unlock-protocol/unlock-wordpress-plugin/blob/master/LICENSE
+@@ -22,7 +22,7 @@ The plugin uses Unlock's default checkout UI, which means it lets users who do n
+ 
+ == Getting Started ==
+ 
+-If you'd like to add a lock to your site, start by [deploying your first lock]https://app.unlock-protocol.com/locks/create). We _strongly_ recommend starting with a test network such as Goerli.
++If you'd like to add a lock to your site, start by [deploying your first lock](https://app.unlock-protocol.com/locks/create). We _strongly_ recommend starting with a test network such as Sepolia or Base Sepolia.
+ 
+ While the lock is deploying, you should [download this plugin](https://wordpress.org/plugins/unlock-protocol/) from the WordPress site. Then, from the administration of your WordPress.org website, in the `Plugins` section, click on the `Add New button and then on the `Upload Plugin` button to upload the plugin.
+ 
+diff --git a/unlock-wordpress-plugin/unlock-protocol.php b/unlock-wordpress-plugin/unlock-protocol.php
+index b49d5d8..a776938 100644
+--- a/unlock-wordpress-plugin/unlock-protocol.php
++++ b/unlock-wordpress-plugin/unlock-protocol.php
+@@ -6,6 +6,8 @@
+  * Author:      Unlock
+  * Author URI:  https://unlock-protocol.com
+  * Version:     4.0.1
++ * Requires at least: 5.9
++ * Requires PHP: 7.4
+  * Text Domain: unlock-protocol
+  *
+  * @package unlock-protocol
+-- 
+2.44.0.windows.1
+

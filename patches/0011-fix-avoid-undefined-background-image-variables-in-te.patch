@@ -1,0 +1,43 @@
+From 6dba3abce68a678810dffc8e486a319dd5ac7d91 Mon Sep 17 00:00:00 2001
+From: SrLLamaDev <srllamadev@gmail.com>
+Date: Sun, 13 Sep 2026 07:17:03 -0400
+Subject: [PATCH 11/16] fix: avoid undefined background image variables in
+ templates
+
+The login and checkout templates read $login_bg_image /
+$checkout_bg_image even when the blurred background option is disabled,
+emitting undefined variable warnings on PHP 8. Guard both with empty().
+---
+ unlock-wordpress-plugin/templates/login/button.php          | 2 +-
+ unlock-wordpress-plugin/templates/login/checkout-button.php | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/unlock-wordpress-plugin/templates/login/button.php b/unlock-wordpress-plugin/templates/login/button.php
+index f54b9d6..e663325 100644
+--- a/unlock-wordpress-plugin/templates/login/button.php
++++ b/unlock-wordpress-plugin/templates/login/button.php
+@@ -11,7 +11,7 @@
+ 
+ <?php if ( $login_button_bg_color && $login_button_text_color ) : ?>
+ <style>
+-	<?php if ( $login_bg_image ) : ?>
++	<?php if ( ! empty( $login_bg_image ) ) : ?>
+ 	.login .login-button-container.blurred,
+ 	.login-button-container.blurred {
+ 		background: url('<?php echo esc_url( $login_bg_image ); ?>') no-repeat center center;
+diff --git a/unlock-wordpress-plugin/templates/login/checkout-button.php b/unlock-wordpress-plugin/templates/login/checkout-button.php
+index 51b3e61..654b831 100644
+--- a/unlock-wordpress-plugin/templates/login/checkout-button.php
++++ b/unlock-wordpress-plugin/templates/login/checkout-button.php
+@@ -11,7 +11,7 @@
+ 
+ <?php if ( $checkout_button_bg_color && $checkout_button_text_color ) : ?>
+ <style>
+-	<?php if ( $checkout_bg_image ) : ?>
++	<?php if ( ! empty( $checkout_bg_image ) ) : ?>
+ 	.checkout-button-container.blurred,
+ 	.checkout-button-container.blurred {
+ 		background: url('<?php echo esc_url( $checkout_bg_image ); ?>') no-repeat center center;
+-- 
+2.44.0.windows.1
+

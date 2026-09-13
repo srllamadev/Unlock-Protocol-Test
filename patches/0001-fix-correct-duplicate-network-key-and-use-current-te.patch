@@ -1,0 +1,81 @@
+From 322ff05f0eccfd0557b409855200886067ef50db Mon Sep 17 00:00:00 2001
+From: SrLLamaDev <srllamadev@gmail.com>
+Date: Sun, 13 Sep 2026 07:14:17 -0400
+Subject: [PATCH 01/16] fix: correct duplicate network key and use current
+ testnets
+
+The networks_list() array used the 'mainnet' key twice, so the Goerli
+entry was silently overwritten by mainnet. Goerli is also no longer
+served by the Unlock RPC proxy (404). Replace it with the currently
+supported testnets (Sepolia, Base Sepolia) and add Base mainnet.
+---
+ .../inc/classes/class-unlock.php              | 30 ++++++++++++-------
+ 1 file changed, 20 insertions(+), 10 deletions(-)
+
+diff --git a/unlock-wordpress-plugin/inc/classes/class-unlock.php b/unlock-wordpress-plugin/inc/classes/class-unlock.php
+index d2b3f09..ad3cd23 100644
+--- a/unlock-wordpress-plugin/inc/classes/class-unlock.php
++++ b/unlock-wordpress-plugin/inc/classes/class-unlock.php
+@@ -273,22 +273,22 @@ class Unlock {
+ 	 */
+ 	public static function networks_list() {
+ 		$networks = array(
+-			'mainnet'  => array(
+-				'network_name'         => 'goerli',
+-				'network_id'           => 5,
+-				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/5',
+-			),
+-			'mainnet'  => array(
++			'mainnet'      => array(
+ 				'network_name'         => 'mainnet',
+ 				'network_id'           => 1,
+ 				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/1',
+ 			),
+-			'xdai'     => array(
++			'sepolia'      => array(
++				'network_name'         => 'sepolia',
++				'network_id'           => 11155111,
++				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/11155111',
++			),
++			'xdai'         => array(
+ 				'network_name'         => 'gnosis chain',
+ 				'network_id'           => 100,
+ 				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/100',
+ 			),
+-			'polygon'  => array(
++			'polygon'      => array(
+ 				'network_name'         => 'polygon',
+ 				'network_id'           => 137,
+ 				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/137',
+@@ -298,16 +298,26 @@ class Unlock {
+ 				'network_id'           => 10,
+ 				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/10',
+ 			),
+-			'arbitrum' => array(
++			'arbitrum'     => array(
+ 				'network_name'         => 'arbitrum',
+ 				'network_id'           => 42161,
+ 				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/42161',
+ 			),
+-			'binance'  => array(
++			'binance'      => array(
+ 				'network_name'         => 'BNB Chain',
+ 				'network_id'           => 56,
+ 				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/56',
+ 			),
++			'base'         => array(
++				'network_name'         => 'Base',
++				'network_id'           => 8453,
++				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/8453',
++			),
++			'base_sepolia' => array(
++				'network_name'         => 'Base Sepolia',
++				'network_id'           => 84532,
++				'network_rpc_endpoint' => 'https://rpc.unlock-protocol.com/84532',
++			),
+ 		);
+ 
+ 		return apply_filters( 'unlock_protocol_network_list', $networks );
+-- 
+2.44.0.windows.1
+

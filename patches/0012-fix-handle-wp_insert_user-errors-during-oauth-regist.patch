@@ -1,0 +1,47 @@
+From 4e6ea3aae209e77831c14bbae8787b392f1f491e Mon Sep 17 00:00:00 2001
+From: SrLLamaDev <srllamadev@gmail.com>
+Date: Sun, 13 Sep 2026 07:17:21 -0400
+Subject: [PATCH 12/16] fix: handle wp_insert_user errors during oauth
+ registration
+
+register() assumed wp_insert_user() always returned a user ID and would
+fatal when it returned WP_Error or when the user lookup failed. Check
+for WP_Error and a valid WP_User before using the result. Also build the
+synthetic email with sanitize_text_field() instead of esc_html().
+---
+ unlock-wordpress-plugin/inc/classes/class-login.php | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/unlock-wordpress-plugin/inc/classes/class-login.php b/unlock-wordpress-plugin/inc/classes/class-login.php
+index 761ee47..3b184ac 100644
+--- a/unlock-wordpress-plugin/inc/classes/class-login.php
++++ b/unlock-wordpress-plugin/inc/classes/class-login.php
+@@ -169,7 +169,7 @@ class Login {
+ 	 * @return string
+ 	 */
+ 	public function get_email_address( $ethereum_address ) {
+-		return sprintf( '%1$s@%2$s', esc_html( $ethereum_address ), esc_html( Unlock::get_client_id() ) );
++		return sprintf( '%1$s@%2$s', sanitize_text_field( $ethereum_address ), sanitize_text_field( Unlock::get_client_id() ) );
+ 	}
+ 
+ 	/**
+@@ -201,8 +201,16 @@ class Login {
+ 				)
+ 			);
+ 
++			if ( is_wp_error( $uid ) ) {
++				throw new \Exception( $uid->get_error_message() );
++			}
++
+ 			$user = get_user_by( 'id', $uid );
+ 
++			if ( ! $user instanceof WP_User ) {
++				throw new \Exception( __( 'Unable to create the user account.', 'unlock-protocol' ) );
++			}
++
+ 			update_user_meta( $user->ID, 'unlock_ethereum_address', $ethereum_address );
+ 
+ 			/**
+-- 
+2.44.0.windows.1
+

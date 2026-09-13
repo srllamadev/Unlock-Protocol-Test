@@ -1,0 +1,96 @@
+From 5abcb0192c67554c33dac57f0ff6178c5551fd7a Mon Sep 17 00:00:00 2001
+From: SrLLamaDev <srllamadev@gmail.com>
+Date: Sun, 13 Sep 2026 07:14:55 -0400
+Subject: [PATCH 03/16] fix: validate lock address and rpc response in validate
+
+validate() called substr() on a possibly null user address (PHP 8.1
+deprecation), never validated the lock address or RPC endpoint, used
+esc_url() for a request URL, had no explicit timeout and did not check
+the HTTP response code. Add validation, use esc_url_raw(), set a
+timeout and surface clear errors.
+---
+ .../inc/classes/class-unlock.php              | 46 ++++++++++++++++---
+ 1 file changed, 39 insertions(+), 7 deletions(-)
+
+diff --git a/unlock-wordpress-plugin/inc/classes/class-unlock.php b/unlock-wordpress-plugin/inc/classes/class-unlock.php
+index 2f75631..21d5bdb 100644
+--- a/unlock-wordpress-plugin/inc/classes/class-unlock.php
++++ b/unlock-wordpress-plugin/inc/classes/class-unlock.php
+@@ -104,18 +104,32 @@ class Unlock {
+ 	}
+ 
+ 	/**
+-	 * Post call to validate.
++	 * Perform an eth_call to getHasValidKey on a lock contract.
+ 	 *
+-	 * @param string $url Network RPC endpoint.
+-	 * @param string $lock_address Lock address.
+-	 * @param string $user_ethereum_address User ethereum address.
++	 * @param string      $url                   Network RPC endpoint.
++	 * @param string      $lock_address          Lock address.
++	 * @param string|null $user_ethereum_address User ethereum address.
+ 	 *
+ 	 * @since 3.0.0
+ 	 *
+-	 * @return float|int|\WP_Error
++	 * @return array|\WP_Error Decoded JSON-RPC response or WP_Error on failure.
+ 	 */
+ 	public static function validate( $url, $lock_address, $user_ethereum_address = null ) {
++
++		if ( ! filter_var( $url, FILTER_VALIDATE_URL ) ) {
++			return new \WP_Error( 'unlock_validate_error', __( 'Invalid RPC endpoint.', 'unlock-protocol' ) );
++		}
++
++		if ( ! is_string( $lock_address ) || ! preg_match( '/^0x[a-fA-F0-9]{40}$/', $lock_address ) ) {
++			return new \WP_Error( 'unlock_validate_error', __( 'Invalid lock address.', 'unlock-protocol' ) );
++		}
++
+ 		$user_ethereum_address = $user_ethereum_address ? $user_ethereum_address : up_get_user_ethereum_address();
++
++		if ( ! is_string( $user_ethereum_address ) || ! preg_match( '/^0x[a-fA-F0-9]{40}$/', $user_ethereum_address ) ) {
++			return new \WP_Error( 'unlock_validate_error', __( 'Invalid user ethereum address.', 'unlock-protocol' ) );
++		}
++
+ 		$user_ethereum_address = substr( $user_ethereum_address, 2 );
+ 
+ 		$params = apply_filters(
+@@ -139,16 +153,34 @@ class Unlock {
+ 			'redirection' => '30',
+ 			'httpversion' => '1.0',
+ 			'blocking'    => true,
++			'timeout'     => 15,
+ 		);
+ 
+-		$response = wp_remote_post( esc_url( $url ), $args );
++		$response = wp_remote_post( esc_url_raw( $url ), $args );
+ 
+ 		if ( is_wp_error( $response ) ) {
+-			return new \WP_Error( 'unlock_validate_error', $response );
++			return new \WP_Error( 'unlock_validate_error', $response->get_error_message() );
++		}
++
++		$response_code = wp_remote_retrieve_response_code( $response );
++
++		if ( 200 !== (int) $response_code ) {
++			return new \WP_Error(
++				'unlock_validate_error',
++				sprintf(
++					/* translators: %d: HTTP response code returned by the RPC endpoint. */
++					__( 'The RPC endpoint returned an unexpected status code: %d', 'unlock-protocol' ),
++					$response_code
++				)
++			);
+ 		}
+ 
+ 		$body = json_decode( wp_remote_retrieve_body( $response ), true );
+ 
++		if ( ! is_array( $body ) ) {
++			return new \WP_Error( 'unlock_validate_error', __( 'Invalid response from the RPC endpoint.', 'unlock-protocol' ) );
++		}
++
+ 		return $body;
+ 	}
+ 
+-- 
+2.44.0.windows.1
+
